@@ -47,7 +47,7 @@ type HTTPRequest struct {
 	httpVersion string // HTTP/1.1
 	path        string
 	host        string // localhost:4221
-	headers     string // user-agent...
+	userAgent   string
 }
 
 // func parseResponse(body string) *HTTPResponse {
@@ -59,16 +59,11 @@ type HTTPRequest struct {
 
 func parseRequest(request string) (*HTTPRequest, error) {
 	strs := strings.Split(request, "\\r\\n")
-	r := strings.Join(strs, "\n")
-
-	fmt.Println(r)
 
 	req := HTTPRequest{}
 	for _, item := range strs {
 		if strings.Contains(item, "GET") {
 			headerParts := strings.Fields(item)
-			fmt.Println(headerParts)
-
 			// set http verb
 			req.verb = "GET"
 
@@ -81,10 +76,20 @@ func parseRequest(request string) (*HTTPRequest, error) {
 		if strings.Contains(item, "Host: ") {
 			req.host = item[strings.Index("Host: ", item)+len("Host: "):]
 		}
+		if strings.Contains(item, "User-Agent: ") {
+			req.userAgent = item[strings.Index("User-Agent: ", item)+len("User-Agent: "):]
+		}
 	}
-	req.headers = ""
 
 	return &req, nil
+}
+
+func writeResponse(conn net.Conn, res string) {
+	_, err := conn.Write([]byte(res))
+	if err != nil {
+		fmt.Println("failed to write to connection")
+		return
+	}
 }
 
 func handleRequest(conn net.Conn) {
@@ -103,25 +108,16 @@ func handleRequest(conn net.Conn) {
 		body := strconv.Quote(string(buf[:n]))
 		req, _ := parseRequest(body)
 		if req.path == "/" {
-			_, err = conn.Write([]byte("HTTP/1.1 200 OK\r\n\r\n"))
-			if err != nil {
-				fmt.Println("failed to write to connection")
-				return
-			}
+			writeResponse(conn, "HTTP/1.1 200 OK\r\n\r\n")
 		} else if strings.Contains(req.path, "/echo/") {
 			echoOut := req.path[strings.Index(req.path, "/echo/")+len("/echo/"):]
 			res := fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s", len(echoOut), echoOut)
-			_, err = conn.Write([]byte(res))
-			if err != nil {
-				fmt.Println("failed to write to connection")
-				return
-			}
+			writeResponse(conn, res)
+		} else if strings.Contains(req.path, "/user-agent") {
+			res := fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s", len(req.userAgent), req.userAgent)
+			writeResponse(conn, res)
 		} else {
-			_, err = conn.Write([]byte("HTTP/1.1 404 Not Found\r\n\r\n"))
-			if err != nil {
-				fmt.Println("failed to write to connection")
-				return
-			}
+			writeResponse(conn, "HTTP/1.1 404 Not Found\r\n\r\n")
 		}
 	}
 }
