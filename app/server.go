@@ -108,6 +108,14 @@ func handleRequest(conn net.Conn) {
 				fmt.Println("failed to write to connection")
 				return
 			}
+		} else if strings.Contains(req.path, "/echo/") {
+			echoOut := req.path[strings.Index(req.path, "/echo/")+len("/echo/"):]
+			res := fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s", len(echoOut), echoOut)
+			_, err = conn.Write([]byte(res))
+			if err != nil {
+				fmt.Println("failed to write to connection")
+				return
+			}
 		} else {
 			_, err = conn.Write([]byte("HTTP/1.1 404 Not Found\r\n\r\n"))
 			if err != nil {
