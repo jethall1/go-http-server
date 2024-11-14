@@ -117,6 +117,20 @@ func handleRequest(conn net.Conn) {
 			req.userAgent = strings.Trim(req.userAgent, " ")
 			res := fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s", len(req.userAgent), req.userAgent)
 			writeResponse(conn, res)
+		} else if strings.Contains(req.path, "/files/") {
+			fileName := req.path[strings.Index(req.path, "/files/")+len("/files/"):]
+			filePath := fmt.Sprintf("/tmp/%s", fileName)
+			dat, err := os.ReadFile(filePath)
+			if err != nil {
+				// file doesnt exist
+				writeResponse(conn, "HTTP/1.1 404 Not Found\r\n\r\n")
+				return
+			}
+
+			fmt.Print(string(dat))
+			fileContents := string(dat)
+			res := fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s", len(fileContents), fileContents)
+			writeResponse(conn, res)
 		} else {
 			writeResponse(conn, "HTTP/1.1 404 Not Found\r\n\r\n")
 		}
