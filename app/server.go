@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"io"
 	"net"
@@ -9,11 +10,14 @@ import (
 	"strings"
 )
 
-// Ensures gofmt doesn't remove the "net" and "os" imports above (feel free to remove this!)
-var _ = net.Listen
-var _ = os.Exit
+var (
+	directory string
+)
 
 func main() {
+	flag.StringVar(&directory, "directory", "/tmp", "help message")
+	flag.Parse()
+
 	l, err := net.Listen("tcp", "0.0.0.0:4221")
 	if err != nil {
 		fmt.Println("Failed to bind to port 4221")
@@ -49,13 +53,6 @@ type HTTPRequest struct {
 	host        string // localhost:4221
 	userAgent   string
 }
-
-// func parseResponse(body string) *HTTPResponse {
-// 	resp := HTMLResponse{}
-// 	strings.Split(body, "\r\n")
-
-// 	return resp
-// }
 
 func parseRequest(request string) (*HTTPRequest, error) {
 	strs := strings.Split(request, "\\r\\n")
@@ -119,19 +116,22 @@ func handleRequest(conn net.Conn) {
 			writeResponse(conn, res)
 		} else if strings.Contains(req.path, "/files/") {
 			fileName := req.path[strings.Index(req.path, "/files/")+len("/files/"):]
-			filePath := fmt.Sprintf("/tmp/%s", fileName)
+			filePath := fmt.Sprintf("%s%s", directory, fileName)
+			fmt.Println("file path", filePath)
 			dat, err := os.ReadFile(filePath)
 			if err != nil {
 				// file doesnt exist
+				fmt.Println("file not found")
 				writeResponse(conn, "HTTP/1.1 404 Not Found\r\n\r\n")
 				return
 			}
 
 			fmt.Print(string(dat))
 			fileContents := string(dat)
-			res := fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s", len(fileContents), fileContents)
+			res := fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: %d\r\n\r\n%s", len(fileContents), fileContents)
 			writeResponse(conn, res)
 		} else {
+			fmt.Println("route not found")
 			writeResponse(conn, "HTTP/1.1 404 Not Found\r\n\r\n")
 		}
 	}
