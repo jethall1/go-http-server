@@ -114,6 +114,7 @@ func handleRequest(conn net.Conn) {
 			res := fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s", len(echoOut), echoOut)
 			writeResponse(conn, res)
 		} else if strings.Contains(req.path, "/user-agent") {
+			req.userAgent = strings.Trim(req.userAgent, " ")
 			res := fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s", len(req.userAgent), req.userAgent)
 			writeResponse(conn, res)
 		} else {
