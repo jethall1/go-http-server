@@ -52,6 +52,7 @@ type HTTPRequest struct {
 	path        string
 	host        string // localhost:4221
 	userAgent   string
+	body        string
 }
 
 func parseRequest(request string) (*HTTPRequest, error) {
@@ -59,10 +60,10 @@ func parseRequest(request string) (*HTTPRequest, error) {
 
 	req := HTTPRequest{}
 	for _, item := range strs {
-		if strings.Contains(item, "GET") {
+		if strings.Contains(item, "GET") || strings.Contains(item, "POST") {
 			headerParts := strings.Fields(item)
 			// set http verb
-			req.verb = "GET"
+			req.verb = strings.Trim(headerParts[0], "\"")
 
 			// set route
 			req.path = headerParts[1]
@@ -76,6 +77,10 @@ func parseRequest(request string) (*HTTPRequest, error) {
 		if strings.Contains(item, "User-Agent: ") {
 			req.userAgent = item[strings.Index("User-Agent: ", item)+len("User-Agent: "):]
 		}
+	}
+
+	if req.verb == "POST" {
+		req.body = strings.TrimSuffix(strs[len(strs)-1], "\"")
 	}
 
 	return &req, nil
@@ -118,18 +123,28 @@ func handleRequest(conn net.Conn) {
 			fileName := req.path[strings.Index(req.path, "/files/")+len("/files/"):]
 			filePath := fmt.Sprintf("%s%s", directory, fileName)
 			fmt.Println("file path", filePath)
-			dat, err := os.ReadFile(filePath)
-			if err != nil {
-				// file doesnt exist
-				fmt.Println("file not found")
-				writeResponse(conn, "HTTP/1.1 404 Not Found\r\n\r\n")
-				return
-			}
+			if req.verb == "GET" {
+				dat, err := os.ReadFile(filePath)
+				if err != nil {
+					fmt.Println("file not found")
+					writeResponse(conn, "HTTP/1.1 404 Not Found\r\n\r\n")
+					return
+				}
 
-			fmt.Print(string(dat))
-			fileContents := string(dat)
-			res := fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: %d\r\n\r\n%s", len(fileContents), fileContents)
-			writeResponse(conn, res)
+				fmt.Print(string(dat))
+				fileContents := string(dat)
+				res := fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: %d\r\n\r\n%s", len(fileContents), fileContents)
+				writeResponse(conn, res)
+			} else {
+				err := os.WriteFile(filePath, []byte(req.body), 0644)
+				if err != nil {
+					fmt.Println("file failed to create")
+					writeResponse(conn, "HTTP/1.1 404 Not Found\r\n\r\n")
+					return
+				}
+
+				writeResponse(conn, "HTTP/1.1 201 Created\r\n\r\n")
+			}
 		} else {
 			fmt.Println("route not found")
 			writeResponse(conn, "HTTP/1.1 404 Not Found\r\n\r\n")
