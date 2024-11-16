@@ -35,17 +35,6 @@ func main() {
 	}
 }
 
-type HTTPResponse struct {
-	httpVersion  string
-	reasonPhrase string
-	headers      []string
-	body         []string
-	statusCode   int
-}
-
-// "GET / HTTP/1.1\r\n
-// Host: localhost:4221\r\n
-// User-Agent: curl/8.1.2\r\nAccept: */*\r\n\r\n"
 type HTTPRequest struct {
 	verb        string // GET, POST ...
 	httpVersion string // HTTP/1.1
@@ -53,6 +42,7 @@ type HTTPRequest struct {
 	host        string // localhost:4221
 	userAgent   string
 	body        string
+	encoding    string
 }
 
 func parseRequest(request string) (*HTTPRequest, error) {
@@ -76,6 +66,10 @@ func parseRequest(request string) (*HTTPRequest, error) {
 		}
 		if strings.Contains(item, "User-Agent: ") {
 			req.userAgent = item[strings.Index("User-Agent: ", item)+len("User-Agent: "):]
+		}
+		if strings.Contains(item, "Accept-Encoding: ") {
+			req.encoding = item[strings.Index("Accept-Encoding: ", item)+len("Accept-Encoding: "):]
+			req.encoding = strings.Trim(req.encoding, " ")
 		}
 	}
 
@@ -113,7 +107,13 @@ func handleRequest(conn net.Conn) {
 			writeResponse(conn, "HTTP/1.1 200 OK\r\n\r\n")
 		} else if strings.Contains(req.path, "/echo/") {
 			echoOut := req.path[strings.Index(req.path, "/echo/")+len("/echo/"):]
-			res := fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s", len(echoOut), echoOut)
+			var contEncoding = ""
+			if req.encoding == "gzip" {
+				fmt.Println("in encoding")
+				contEncoding = fmt.Sprintf("Content-Encoding: %s\r\n", req.encoding)
+			}
+			fmt.Println(contEncoding)
+			res := fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n%sContent-Length: %d\r\n\r\n%s", contEncoding, len(echoOut), echoOut)
 			writeResponse(conn, res)
 		} else if strings.Contains(req.path, "/user-agent") {
 			req.userAgent = strings.Trim(req.userAgent, " ")
