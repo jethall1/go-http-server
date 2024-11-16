@@ -1,9 +1,12 @@
 package main
 
 import (
+	"bytes"
+	"compress/gzip"
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"os"
 	"slices"
@@ -102,6 +105,18 @@ func writeResponse(conn net.Conn, res string) {
 	}
 }
 
+func compressString(body string) []byte {
+	var b bytes.Buffer
+	gz := gzip.NewWriter(&b)
+	if _, err := gz.Write([]byte(body)); err != nil {
+		log.Fatal(err)
+	}
+	if err := gz.Close(); err != nil {
+		log.Fatal(err)
+	}
+	return b.Bytes()
+}
+
 func handleRequest(conn net.Conn) {
 	defer conn.Close()
 
@@ -123,9 +138,10 @@ func handleRequest(conn net.Conn) {
 			echoOut := req.path[strings.Index(req.path, "/echo/")+len("/echo/"):]
 			var contEncoding = ""
 			if req.encoding == "gzip" {
-				fmt.Println("in encoding")
 				contEncoding = fmt.Sprintf("Content-Encoding: %s\r\n", req.encoding)
+				echoOut = string(compressString(echoOut)[:])
 			}
+			fmt.Println(echoOut)
 			fmt.Println(contEncoding)
 			res := fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n%sContent-Length: %d\r\n\r\n%s", contEncoding, len(echoOut), echoOut)
 			writeResponse(conn, res)
