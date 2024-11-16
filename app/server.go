@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -48,6 +49,9 @@ type HTTPRequest struct {
 func parseRequest(request string) (*HTTPRequest, error) {
 	strs := strings.Split(request, "\\r\\n")
 
+	var validCompressionTypes []string
+	validCompressionTypes = append(validCompressionTypes, "gzip")
+
 	req := HTTPRequest{}
 	for _, item := range strs {
 		if strings.Contains(item, "GET") || strings.Contains(item, "POST") {
@@ -68,8 +72,18 @@ func parseRequest(request string) (*HTTPRequest, error) {
 			req.userAgent = item[strings.Index("User-Agent: ", item)+len("User-Agent: "):]
 		}
 		if strings.Contains(item, "Accept-Encoding: ") {
-			req.encoding = item[strings.Index("Accept-Encoding: ", item)+len("Accept-Encoding: "):]
-			req.encoding = strings.Trim(req.encoding, " ")
+			temp := item[strings.Index("Accept-Encoding: ", item)+len("Accept-Encoding: "):]
+			x := strings.Split(strings.ReplaceAll(temp, " ", ""), ",")
+			if len(x) == 1 {
+				req.encoding = x[0]
+			}
+
+			for _, i := range x {
+				if slices.Contains(validCompressionTypes, i) {
+					req.encoding = i
+				}
+			}
+			fmt.Println("compressions", req.encoding)
 		}
 	}
 
