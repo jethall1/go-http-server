@@ -42,21 +42,77 @@ func main() {
 type HTTPRequest struct {
 	verb        string // GET, POST ...
 	httpVersion string // HTTP/1.1
-	path        string
+	path        string // /echo
 	host        string // localhost:4221
 	userAgent   string
 	body        string
 	encoding    string
 }
 
-func parseRequest(request string) (*HTTPRequest, error) {
+type Response struct {
+	version         string
+	statusCode      int
+	statusMessage   string
+	contentType     string
+	contentEncoding string
+	content         string
+}
+
+const (
+	OK        string = "OK"
+	NOT_FOUND string = "Not Found"
+	CREATED   string = "Created"
+)
+
+func (r *Response) createResponse() string {
+	if r.version == "" || r.statusCode == 0 {
+		fmt.Println("invalid response parameters")
+		return ""
+	}
+
+	var rtnString string
+	switch r.statusCode {
+	case 200:
+		r.statusMessage = OK
+	case 404:
+		r.statusMessage = NOT_FOUND
+	case 201:
+		r.statusMessage = CREATED
+	}
+
+	crlf := "\r\n"
+	rtnString += r.version
+	rtnString += fmt.Sprintf(" %d", r.statusCode)
+	rtnString += fmt.Sprintf(" %s", r.statusMessage)
+	rtnString += crlf
+
+	if len(r.content) > 0 {
+		contentType := fmt.Sprintf("Content-Type: %s", r.contentType)
+		if r.contentEncoding != "" {
+			rtnString += fmt.Sprintf("Content-Encoding: %s%s", r.contentEncoding, crlf)
+		}
+		contentLen := fmt.Sprintf("Content-Length: %d", len(r.content))
+		rtnString += contentType
+		rtnString += crlf
+		rtnString += contentLen
+		rtnString += fmt.Sprintf("%s%s%s", crlf, crlf, r.content)
+		return rtnString
+	}
+
+	rtnString += crlf
+	return rtnString
+}
+
+func parseRequest(request string) (HTTPRequest, error) {
 	strs := strings.Split(request, "\\r\\n")
 
 	var validCompressionTypes []string
 	validCompressionTypes = append(validCompressionTypes, "gzip")
 
 	req := HTTPRequest{}
+	// can do this without a for loop
 	for _, item := range strs {
+		var x string
 		if strings.Contains(item, "GET") || strings.Contains(item, "POST") {
 			headerParts := strings.Fields(item)
 			// set http verb
@@ -68,25 +124,24 @@ func parseRequest(request string) (*HTTPRequest, error) {
 			// set http version
 			req.httpVersion = headerParts[2]
 		}
-		if strings.Contains(item, "Host: ") {
-			req.host = item[strings.Index("Host: ", item)+len("Host: "):]
+		x = "Host: "
+		if strings.Contains(item, x) {
+			req.host = item[strings.Index(x, item)+len(x):]
 		}
-		if strings.Contains(item, "User-Agent: ") {
-			req.userAgent = item[strings.Index("User-Agent: ", item)+len("User-Agent: "):]
+		x = "User-Agent: "
+		if strings.Contains(item, x) {
+			req.userAgent = item[strings.Index(x, item)+len(x):]
+			req.userAgent = strings.Trim(req.userAgent, " ")
 		}
-		if strings.Contains(item, "Accept-Encoding: ") {
-			temp := item[strings.Index("Accept-Encoding: ", item)+len("Accept-Encoding: "):]
+		x = "Accept-Encoding: "
+		if strings.Contains(item, x) {
+			temp := item[strings.Index(x, item)+len(x):]
 			x := strings.Split(strings.ReplaceAll(temp, " ", ""), ",")
-			if len(x) == 1 {
-				req.encoding = x[0]
-			}
-
 			for _, i := range x {
 				if slices.Contains(validCompressionTypes, i) {
 					req.encoding = i
 				}
 			}
-			fmt.Println("compressions", req.encoding)
 		}
 	}
 
@@ -94,11 +149,13 @@ func parseRequest(request string) (*HTTPRequest, error) {
 		req.body = strings.TrimSuffix(strs[len(strs)-1], "\"")
 	}
 
-	return &req, nil
+	return req, nil
 }
 
-func writeResponse(conn net.Conn, res string) {
-	_, err := conn.Write([]byte(res))
+func writeResponse(conn net.Conn, res *Response) {
+	responseString := res.createResponse()
+
+	_, err := conn.Write([]byte(responseString))
 	if err != nil {
 		fmt.Println("failed to write to connection")
 		return
@@ -131,53 +188,83 @@ func handleRequest(conn net.Conn) {
 		}
 
 		body := strconv.Quote(string(buf[:n]))
-		req, _ := parseRequest(body)
-		if req.path == "/" {
-			writeResponse(conn, "HTTP/1.1 200 OK\r\n\r\n")
-		} else if strings.Contains(req.path, "/echo/") {
-			echoOut := req.path[strings.Index(req.path, "/echo/")+len("/echo/"):]
-			var contEncoding = ""
-			if req.encoding == "gzip" {
-				contEncoding = fmt.Sprintf("Content-Encoding: %s\r\n", req.encoding)
-				echoOut = string(compressString(echoOut)[:])
-			}
-			fmt.Println(echoOut)
-			fmt.Println(contEncoding)
-			res := fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n%sContent-Length: %d\r\n\r\n%s", contEncoding, len(echoOut), echoOut)
-			writeResponse(conn, res)
-		} else if strings.Contains(req.path, "/user-agent") {
-			req.userAgent = strings.Trim(req.userAgent, " ")
-			res := fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s", len(req.userAgent), req.userAgent)
-			writeResponse(conn, res)
-		} else if strings.Contains(req.path, "/files/") {
-			fileName := req.path[strings.Index(req.path, "/files/")+len("/files/"):]
-			filePath := fmt.Sprintf("%s%s", directory, fileName)
-			fmt.Println("file path", filePath)
-			if req.verb == "GET" {
-				dat, err := os.ReadFile(filePath)
-				if err != nil {
-					fmt.Println("file not found")
-					writeResponse(conn, "HTTP/1.1 404 Not Found\r\n\r\n")
-					return
-				}
+		req, err := parseRequest(body)
+		if err != nil {
+			fmt.Println("error parsing request")
+			return
+		}
 
-				fmt.Print(string(dat))
-				fileContents := string(dat)
-				res := fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: %d\r\n\r\n%s", len(fileContents), fileContents)
-				writeResponse(conn, res)
-			} else {
-				err := os.WriteFile(filePath, []byte(req.body), 0644)
-				if err != nil {
-					fmt.Println("file failed to create")
-					writeResponse(conn, "HTTP/1.1 404 Not Found\r\n\r\n")
-					return
-				}
+		responseWriter := Response{
+			version:         req.httpVersion,
+			statusCode:      200,
+			contentEncoding: req.encoding,
+		}
 
-				writeResponse(conn, "HTTP/1.1 201 Created\r\n\r\n")
-			}
-		} else {
-			fmt.Println("route not found")
-			writeResponse(conn, "HTTP/1.1 404 Not Found\r\n\r\n")
+		switch {
+		case req.path == "/":
+			writeResponse(conn, &responseWriter)
+		case strings.HasPrefix(req.path, "/echo/"):
+			handleEcho(req, &responseWriter, conn)
+		case strings.HasPrefix(req.path, "/user-agent"):
+			handleUserAgent(req, &responseWriter, conn)
+		case strings.HasPrefix(req.path, "/files/"):
+			handleFile(req, &responseWriter, conn)
+		default:
+			responseWriter.statusCode = 404
+			writeResponse(conn, &responseWriter)
 		}
 	}
+}
+
+func handleEcho(req HTTPRequest, r *Response, conn net.Conn) {
+	echoOut := req.path[strings.Index(req.path, "/echo/")+len("/echo/"):]
+	if req.encoding == "gzip" {
+		echoOut = string(compressString(echoOut)[:])
+	}
+
+	r.statusCode = 200
+	r.contentType = "text/plain"
+	r.content = echoOut
+
+	writeResponse(conn, r)
+}
+
+func handleFile(req HTTPRequest, r *Response, conn net.Conn) {
+	fileName := req.path[strings.Index(req.path, "/files/")+len("/files/"):]
+	filePath := fmt.Sprintf("%s%s", directory, fileName)
+
+	switch req.verb {
+	case "GET":
+		dat, err := os.ReadFile(filePath)
+		if err != nil {
+			r.statusCode = 404
+			writeResponse(conn, r)
+			return
+		}
+
+		fileContents := string(dat)
+
+		r.statusCode = 200
+		r.contentType = "application/octet-stream"
+		r.content = fileContents
+		writeResponse(conn, r)
+
+	case "POST":
+		err := os.WriteFile(filePath, []byte(req.body), 0644)
+		if err != nil {
+			r.statusCode = 404
+			writeResponse(conn, r)
+			return
+		}
+
+		r.statusCode = 201
+		writeResponse(conn, r)
+	}
+}
+
+func handleUserAgent(req HTTPRequest, r *Response, conn net.Conn) {
+	r.statusCode = 200
+	r.contentType = "text/plain"
+	r.content = req.userAgent
+	writeResponse(conn, r)
 }
